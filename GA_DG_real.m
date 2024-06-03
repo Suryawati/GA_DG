@@ -1,0 +1,160 @@
+%program konfigurasi peletakan DG menggunakan realGA%
+  clc;
+  clear all;
+  close all;
+  
+  format long
+  tic
+     
+  %============================GA parameter================
+  mutation_probability=0.1;
+  Prob_Pindah_Silang=0.8;
+  popsize=30;
+  Jumlah_Populasi=popsize;
+  Pbreed=0.25;
+  maxgen=20;            %maksimum generasi
+  
+    Rugi =zeros(popsize,1);           %pembentukan tabel rugi dalam satu kolom 
+    ProbSis=zeros(popsize,1);
+    Rugi100=zeros(popsize,1);
+    
+     jum_DG=6;
+     Nbit=10;
+     Pmin=0;              % isikan P minimum DG
+     Pmax=10;             % isikan P maksimum DG
+     Qmin=-2;             % isikan Q minimum DG
+     Qmax=-0.001;         % isikan Q maksimum DG
+     jum_bus=30; %data (30 0r 14 Bus)
+     stmbus=jum_bus;
+     [busdata,linedata,GenRestric]=DataIEEE(stmbus); 
+     Pa=rand(popsize,jum_DG);
+     P=Pa*(Pmax-Pmin)+Pmin;
+     Qa=rand(popsize,jum_DG);
+     Q=Qa*(Qmax-Qmin)+Qmin;      
+     Position=round(rand(popsize,jum_DG)*(30-10)+10);
+     DGPosition=[10 12 14 15 16 17 18 19 20 21 22 23 24 25 26 27 29 30];    
+
+               
+     for a=1:popsize
+         for b=1:jum_DG
+             if ismember(Position(a,b),GenRestric)==1,
+                 Position(a,b)=10;                                 
+             elseif Position(a,b)>jum_bus 
+                 Position(a,b)=jum_bus;
+             elseif Position(a,b)<1 
+                 Position(a,b)=10;
+             end
+         end
+     end      
+      
+    
+      cromosome=[Pa Qa Position];
+      Panjang_kromosom=length(cromosome(1,:));
+      
+    %---------------------------------------------------------------------- 
+    
+  
+  %start for generation
+  for gen=1:maxgen
+          
+ %masuk ke load flow untuk menghitung rugi-rugi daya    
+      
+    for k=1:popsize;
+      [RugiRugi,ProblemSistem,VMin,Vmax,Qg]=LoadFlow_100(busdata,linedata,P,Q,Position,jum_DG,k,GenRestric);  %perhitungan rugi2 
+      ProbSis(k)=ProblemSistem;
+      Rugi100(k)=RugiRugi;               %rugi daya di setiap particle
+    end
+  
+     for k=1:popsize
+       if ProbSis(k)==0
+           Rugi(k)=Rugi100(k);
+       elseif ProbSis(k)==1
+           Rugi(k)=100;
+       end
+     end    
+      
+         objectif_func=abs(Rugi);
+         AGstandar2Dreal;
+         BEST=[P(C,:) Q(C,:) Position(C,:)]; 
+         Pa=cromosome(:,1:jum_DG);
+         Qa=cromosome(:,jum_DG+1:jum_DG*2);
+         P=Pa*(Pmax-Pmin)+Pmin;     
+         Q=Qa*(Qmax-Qmin)+Qmin;
+         Position=round(cromosome(:,jum_DG*2+1:end));  % progrm yang dulu gak ada round
+         
+    
+     for a=1:popsize
+         for b=1:jum_DG
+             if ismember(Position(a,b),GenRestric)==1,
+                 Position(a,b)=10;                                 
+             elseif Position(a,b)>jum_bus 
+                 Position(a,b)=jum_bus;
+             elseif Position(a,b)<1 
+                 Position(a,b)=10;
+             end
+         end
+     end            
+     
+     
+     cromosome=[Pa Qa Position];
+
+   %--------------------------------------
+    if gen==1
+       maxloss=BestLoss(1);
+       %---Buat Grafik
+       %maxcost=1.5e6;
+       hfig = figure;
+       hold on
+       title('Grafik GA');
+       set(hfig, 'position', [50,40,600,300]);
+       set(hfig, 'DoubleBuffer', 'on');
+       hbestplot = plot(1:maxgen,zeros(1,maxgen));
+       htext1 = text(0.7*maxgen,maxloss,sprintf('Losses=%5.4', 0.0));
+       %set(htext2,'String',sprintf('P1=%3.f, P2=%3.f, P3=%3.f', BEST(1), EST(2), BEST(3)));
+       xlabel('Generasi');
+       ylabel('LOSS ');
+       hold off
+       drawnow;      
+    end
+    
+    plotvector = get(hbestplot,'YData');
+    plotvector(gen) = BestLoss(gen);
+    set(hbestplot,'YData',plotvector);
+    set(htext1,'String',sprintf('Losses=%5.4f', BestLoss(gen)));
+    %set(htext2,'String',sprintf('P1=%3.f, P2=%3.f, P3=%3.f', BEST(1), BEST(2), BEST(3)));
+    drawnow
+  end
+     
+   
+     toc
+
+    
+ %clc;
+ [RugiRugi]=LF_nonDG(busdata,linedata);
+ Rugi_TanpaDG=RugiRugi;
+ fprintf('\n')
+ busPQ=BEST;
+ [RugiRugi]=LF(busdata,linedata,busPQ,jum_DG);
+ Rugi_withDG=RugiRugi;
+ fprintf('\n')
+ 
+ 
+ busP=[busPQ(1:jum_DG)',busPQ((jum_DG*2)+1:jum_DG*3)'];
+ busP=sortrows(busP,2);
+ busQ=[busPQ(jum_DG+1:jum_DG*2)',busPQ((jum_DG*2)+1:jum_DG*3)'];
+ busQ=sortrows(busQ,2);
+ 
+ fprintf('\n')
+ fprintf('Rugi Tanpa DG : %f \n',Rugi_TanpaDG);
+ fprintf('\n')
+ fprintf('Rugi setelah ada DG : %f \n',Rugi_withDG);
+ fprintf('\n')
+ fprintf(' Daya Aktif(P)     no Bus       Kapasitas\n')
+ for a=1:jum_DG
+     fprintf('%10.3f',busP(a,1)); fprintf('          %1.f',busP(a,2));      fprintf('          %1.f MW\n',Pmax);                
+ end
+ fprintf('\n')
+ fprintf(' Daya Reaktif(Q)   no Bus       Kapasitas\n')
+ for a=1:jum_DG
+     fprintf('%10.3f',busQ(a,1));  fprintf('         %1.f',busQ(a,2));      fprintf('          %1.f MVar\n',Qmax);          
+ end
